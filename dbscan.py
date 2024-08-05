@@ -11,7 +11,7 @@ class PointInfo:
     for core points:
         cluster_index = 1-based index of its cluster
     '''
-    def __init__(self) -> None:
+    def __init__(self):
         self.n_neighbours = 0   # Number of neighbours, including itself
         self.core_index = 0     # 0 for noise points, 1-based index of its core point
         self.cluster_index = 0  # 0 for noise points and border points, 1-based index of its cluster
@@ -19,7 +19,7 @@ class PointInfo:
 def dist2(data, i, j):
     return (data[i,0] - data[j,0])**2 + (data[i,1] - data[j,1])**2
 
-def dbscan(data, eps, min_pts, dist_func):
+def dbscan(data, eps, min_pts, dist_func=dist2):
     n = len(data)
     point_info = [PointInfo() for i in range(n)]
     neighbours = np.zeros((n, n), np.int32)  # To store indices of neighbours (can also use list of lists)
@@ -59,7 +59,12 @@ def dbscan(data, eps, min_pts, dist_func):
         for j in range(pt.n_neighbours):
             pt2_index = neighbours[i, j]
             pt2 = point_info[pt2_index]
-            pt2.core_index = i + 1              # 1-based index
+            if pt2.core_index == 0:             # If it is not a core point
+                pt2.core_index = i + 1          # 1-based index
+            else:
+                # Check if it is a better core point
+                if dist_func(data, pt2_index, pt2.core_index - 1) > dist_func(data, pt2_index, i):
+                    pt2.core_index = i + 1      # Update core point
 
             if pt2.n_neighbours >= min_pts:     # If it is a core point
                 if pt2.cluster_index == 0:      # If it is not assigned to any cluster
