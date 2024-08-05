@@ -57,16 +57,12 @@ def dbscan(data, eps, min_pts, dist_func=dist2):
             clusters[cluster_index] = [i]           # Create a new cluster
 
         for j in range(pt.n_neighbours):
+            # for each neighbour
             pt2_index = neighbours[i, j]
             pt2 = point_info[pt2_index]
-            if pt2.core_index == 0:             # If it is not a core point
-                pt2.core_index = i + 1          # 1-based index
-            else:
-                # Check if it is a better core point
-                if dist_func(data, pt2_index, pt2.core_index - 1) > dist_func(data, pt2_index, i):
-                    pt2.core_index = i + 1      # Update core point
 
             if pt2.n_neighbours >= min_pts:     # If it is a core point
+                pt2.core_index = i + 1          # Update core point (itself)
                 if pt2.cluster_index == 0:      # If it is not assigned to any cluster
                     pt2.cluster_index = cluster_index + 1       # add to current cluster
                     clusters[cluster_index].append(pt2_index)
@@ -79,6 +75,13 @@ def dbscan(data, eps, min_pts, dist_func=dist2):
                             point_info[k].cluster_index = cluster_index + 1     # Reassign cluster index
                         clusters[cluster_index].extend(cluster) # Merge clusters
                         clusters[cluster_index2] = None         # Remove merged cluster
+            else:   # it is a border point
+                if pt2.core_index == 0:             # If it does not have a core point
+                    pt2.core_index = i + 1          # 1-based index
+                else:
+                    # Check if it is a better core point
+                    if dist_func(data, pt2_index, pt2.core_index - 1) > dist_func(data, pt2_index, i):
+                        pt2.core_index = i + 1      # Update core point
 
     # cluster id mapping
     cluster_ids = [0 for i in range(len_clusters)]  # To store cluster ids (0-based index)
