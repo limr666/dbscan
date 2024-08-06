@@ -10,11 +10,15 @@ class PointInfo:
         core_index = 1-based index of its core point
     for core points:
         cluster_index = 1-based index of its cluster
+        first_in_cluster = 1-based index of the first point in the cluster
+        next_in_cluster = 1-based index of the next point in the cluster
     '''
     def __init__(self):
-        self.n_neighbours = 0   # Number of neighbours, including itself
-        self.core_index = 0     # 0 for noise points, 1-based index of its core point
-        self.cluster_index = 0  # 0 for noise points and border points, 1-based index of its cluster
+        self.n_neighbours = 0       # Number of neighbours, including itself
+        self.core_index = 0         # 0 for noise points, 1-based index of its core point
+        self.cluster_index = 0      # 0 for noise points and border points, 1-based index of its cluster
+        self.first_in_cluster = 0   # first point in cluster, 1-based index
+        self.next_in_cluster = 0;   # next point in cluster, 1-based index
 
 def dist2(data, i, j):
     return (data[i,0] - data[j,0])**2 + (data[i,1] - data[j,1])**2
@@ -41,20 +45,15 @@ def dbscan(data, eps, min_pts, dist_func=dist2):
         if pt.n_neighbours >= min_pts:
             core_pt_indices.append(i)
 
-    clusters = [None for i in range(len(core_pt_indices))]  # To store core points as clusters
-    len_clusters = 0        # number of slots used for clusters, may have None slots (empty clusters)
-
     for i in core_pt_indices:
-        # get cluster index or assign a new one
+        # for each core point
         pt = point_info[i]
-        if pt.cluster_index > 0:    # If it is already assigned to a cluster
-            cluster_index = pt.cluster_index - 1    # Get cluster index
-        else:                       # If it is not assigned to any cluster
-            # Assign a new cluster for this core point
-            cluster_index = len_clusters
-            len_clusters += 1
-            pt.cluster_index = cluster_index + 1    # 1-based index
-            clusters[cluster_index] = [i]           # Create a new cluster
+        if pt.first_in_cluster > 0:         # If it is already assigned to a cluster
+            first_in_cluster = pt.first_in_cluster - 1
+        else:
+            first_in_cluster = i
+            pt.first_in_cluster = i + 1     # 1-based index (itself)
+            pt.next_in_cluster = 0          # 0 for the last point in the cluster
 
         for j in range(pt.n_neighbours):
             # for each neighbour
@@ -62,43 +61,54 @@ def dbscan(data, eps, min_pts, dist_func=dist2):
             pt2 = point_info[pt2_index]
 
             if pt2.n_neighbours >= min_pts:     # If it is a core point
-                pt2.core_index = i + 1          # Update core point (itself)
-                if pt2.cluster_index == 0:      # If it is not assigned to any cluster
-                    pt2.cluster_index = cluster_index + 1       # add to current cluster
-                    clusters[cluster_index].append(pt2_index)
-                else:                           # If it is already assigned to a cluster
-                    cluster_index2 = pt2.cluster_index - 1
-                    if cluster_index2 != cluster_index:         # If it is assigned to a different cluster
-                        # Merge clusters
-                        cluster = clusters[cluster_index2]      # Get cluster
-                        for k in cluster:
-                            point_info[k].cluster_index = cluster_index + 1     # Reassign cluster index
-                        clusters[cluster_index].extend(cluster) # Merge clusters
-                        clusters[cluster_index2] = None         # Remove merged cluster
-            else:   # it is a border point
-                if pt2.core_index == 0:             # If it does not have a core point
-                    pt2.core_index = i + 1          # 1-based index
+                pt2.core_index = i + 1          # Set core point
+                if pt2.first_in_cluster > 0:    # If it is already assigned to a cluster
+                    first_in_cluster2 = pt2.first_in_cluster - 1
+                    if first_in_cluster2 != first_in_cluster:   # If it is assigned to a different cluster
+                        # Merge clusters : insert cluster after the first point of cluster2
+                        first_pt = point_info[first_in_cluster]
+                        p = first_pt
+                        while True:
+                            p.first_in_cluster = first_in_cluster2 + 1
+                            if p.next_in_cluster == 0:
+                                break
+                            p = point_info[p.next_in_cluster - 1]
+                        first_pt2 = point_info[first_in_cluster2]
+                        p.next_in_cluster = first_pt2.next_in_cluster
+                        first_pt2.next_in_cluster = first_in_cluster + 1
+                        first_in_cluster = first_in_cluster2
                 else:
-                    # Check if it is a better core point
+                    # Add to the cluster: insert after the first point in the cluster
+                    first_pt = point_info[first_in_cluster]
+                    pt2.first_in_cluster = first_in_cluster + 1
+                    pt2.next_in_cluster = first_pt.next_in_cluster
+                    first_pt.next_in_cluster = pt2_index + 1
+
+            else:      # it is a border point
+                if pt2.core_index == 0:
+                    pt2.core_index = i + 1
+                else:
                     if dist_func(data, pt2_index, pt2.core_index - 1) > dist_func(data, pt2_index, i):
-                        pt2.core_index = i + 1      # Update core point
+                        pt2.core_index = i + 1
 
-    # cluster id mapping
-    cluster_ids = [0 for i in range(len_clusters)]  # To store cluster ids (0-based index)
-    num_cluters = 0
-    for i in range(len_clusters):
-        if clusters[i] is not None:
-            cluster_ids[i] = num_cluters
-            num_cluters += 1
+    num_clusters = 0
+    for i in core_pt_indices:
+        pt = point_info[i]
+        if pt.first_in_cluster == i + 1:    # If it is the first point in the cluster
+            num_clusters += 1
+            pt.cluster_index = num_clusters
 
-    clusters = [[] for i in range(num_cluters + 1)]  # first one for noise points
+    clusters = [[] for i in range(num_clusters + 1)]  # first one for noise points
     for i, pt in enumerate(point_info):
         if pt.core_index > 0:
             core_pt = point_info[pt.core_index - 1]
-            cluster_id = cluster_ids[core_pt.cluster_index - 1]
-            clusters[cluster_id + 1].append(i)  # Core points and border points
+            assert core_pt.core_index > 0
+            first_pt = point_info[core_pt.first_in_cluster - 1]
+            cluster_id = first_pt.cluster_index
+            assert cluster_id > 0
+            clusters[cluster_id].append(i)
         else:
-            clusters[0].append(i)  # Noise points
+            clusters[0].append(i)   # noise points
 
     return clusters
 
@@ -114,7 +124,7 @@ if __name__ == '__main__':
     s = 50
     alpha = 0.6
 
-    X,_ = datasets.make_moons(500, noise=0.15, random_state=1)
+    X,_ = datasets.make_moons(500, noise=0.2, random_state=1)
     df = pd.DataFrame(X, columns=['feature1', 'feature2'])
     df.plot.scatter('feature1', 'feature2', s=s, alpha=alpha, title='dataset by make_moon')
     plt.show()
